@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>MeetMate — AI Meeting Notes</title>
+<style>
+  :root{
+    --teal:#0e9b8f; --teal-dark:#0b7d73; --teal-soft:#e2f5f3;
+    --navy:#25324b; --gold:#ffb84d; --red:#ff6b6b; --green:#3ecf8e;
+    --bg:#f4f7f8; --card:#ffffff; --ink:#25324b;
+    --radius:20px;
+    --shadow:0 4px 14px rgba(37,50,75,.10);
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:"Segoe UI",system-ui,-apple-system,sans-serif;
+    background:var(--bg); color:var(--ink); min-height:100dvh;
+    background-image:radial-gradient(circle at 12% 15%, rgba(14,155,143,.06) 0 130px, transparent 131px),
+                     radial-gradient(circle at 88% 75%, rgba(255,184,77,.08) 0 140px, transparent 141px);
+  }
+  .screen{display:none; max-width:760px; margin:0 auto; padding:18px 16px 60px; min-height:100dvh;}
+  .screen.active{display:block;}
+  h1,h2,h3{margin:.3em 0;}
+  .big-title{font-size:clamp(1.6rem,5vw,2.4rem); text-align:center;}
+  .subtitle{text-align:center; opacity:.7; margin-top:0;}
+  .hint{font-size:.85rem; opacity:.7;}
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border:none; cursor:pointer; font-family:inherit; font-weight:700;
+    font-size:1.02rem; padding:13px 24px; border-radius:999px;
+    background:var(--teal); color:#fff; box-shadow:var(--shadow);
+    transition:transform .1s;
+  }
+  .btn:active{transform:scale(.96);}
+  .btn.secondary{background:#fff; color:var(--teal); border:3px solid var(--teal);}
+  .btn.red{background:var(--red);}
+  .btn.gold{background:var(--gold); color:var(--navy);}
+  .btn.small{font-size:.88rem; padding:8px 16px;}
+  .btn.ghost{background:transparent; color:var(--ink); box-shadow:none; border:2px solid rgba(37,50,75,.2);}
+  .btn:disabled{opacity:.45; cursor:default;}
+
+  .card{background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow); padding:18px; margin:12px 0;}
+
+  .topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;}
+  .topbar h2{display:flex; align-items:center; gap:8px;}
+
+  /* welcome tutorial */
+  #screen-welcome{text-align:center;}
+  #screen-welcome.active{display:flex; flex-direction:column; justify-content:center;}
+  .tut-emoji{font-size:4.6rem; margin:10px 0;}
+  .dots{display:flex; gap:8px; justify-content:center; margin:18px 0;}
+  .dots span{width:12px;height:12px;border-radius:50%;background:#d5dde0;}
+  .dots span.on{background:var(--teal);}
+
+  /* meeting list */
+  .meet-item{
+    background:#fff; border-radius:var(--radius); box-shadow:var(--shadow);
+    padding:14px 16px; margin:10px 0; cursor:pointer; display:flex; gap:12px; align-items:center;
+    transition:transform .1s;
+  }
+  .meet-item:active{transform:scale(.98);}
+  .meet-item .ic{font-size:1.7rem;}
+  .meet-item .ttl{font-weight:700;}
+  .meet-item .sub{font-size:.82rem; opacity:.65;}
+  .meet-item .flag{margin-left:auto; font-size:.75rem; background:var(--teal-soft); color:var(--teal-dark);
+    padding:3px 10px; border-radius:999px; font-weight:700; white-space:nowrap;}
+  #search-box{width:100%;}
+
+  input[type=text],input[type=password],select,textarea{
+    font-family:inherit; font-size:1rem; padding:12px 14px; border-radius:14px;
+    border:2px solid rgba(37,50,75,.15); width:100%; background:#fff; color:var(--ink);
+  }
+  textarea{resize:vertical; min-height:90px;}
+  input:focus,textarea:focus,select:focus{outline:none; border-color:var(--teal);}
+
+  /* recording screen */
+  #rec-wrap{text-align:center;}
+  .rec-btn{
+    width:132px; height:132px; border-radius:50%; border:none; cursor:pointer;
+    background:var(--teal); color:#fff; font-size:3rem; box-shadow:0 6px 22px rgba(14,155,143,.4);
+    margin:14px auto; display:flex; align-items:center; justify-content:center;
+    transition:transform .1s;
+  }
+  .rec-btn:active{transform:scale(.94);}
+  .rec-btn.live{background:var(--red); box-shadow:0 6px 22px rgba(255,107,107,.45); animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
+  #rec-timer{font-size:1.6rem; font-weight:800; letter-spacing:1px;}
+  #rec-status{min-height:1.4em; font-weight:600; color:var(--teal-dark);}
+  #live-transcript{
+    text-align:left; max-height:38vh; overflow-y:auto; white-space:pre-wrap;
+    font-size:1rem; line-height:1.55;
+  }
+  #live-transcript .interim{opacity:.45; font-style:italic;}
+
+  /* detail screen */
+  .section-label{font-weight:800; font-size:.8rem; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--teal-dark); margin:14px 0 4px;}
+  #d-transcript,#d-summary{white-space:pre-wrap; line-height:1.55; font-size:.98rem;}
+  #d-summary{background:var(--teal-soft); border-radius:14px; padding:14px;}
+  .action-line{background:#fff7e8; border-left:4px solid var(--gold); padding:6px 10px; border-radius:0 10px 10px 0; margin:5px 0;}
+  .btn-row{display:flex; flex-wrap:wrap; gap:10px; margin:12px 0;}
+  #d-title{font-size:1.15rem; font-weight:700;}
+
+  .empty{text-align:center; opacity:.6; padding:30px 10px;}
+  .toast{
+    position:fixed; bottom:18px; left:50%; transform:translateX(-50%);
+    background:var(--navy); color:#fff; padding:11px 22px; border-radius:999px;
+    font-weight:600; box-shadow:var(--shadow); opacity:0; pointer-events:none; transition:opacity .25s; z-index:50;
+    max-width:90vw; text-align:center;
+  }
+  .toast.show{opacity:1;}
+  .model-row{display:flex; gap:10px; margin:10px 0; flex-wrap:wrap;}
+  .model-row label{
+    flex:1 1 200px; border:3px solid transparent; border-radius:14px; background:#fff;
+    box-shadow:var(--shadow); padding:12px; cursor:pointer; font-size:.9rem;
+  }
+  .model-row label.sel{border-color:var(--teal); background:var(--teal-soft);}
+  .model-row b{display:block;}
+  .model-row small{opacity:.75;}
+</style>
+</head>
+<body>
+
+<!-- ============ WELCOME TUTORIAL ============ -->
+<div class="screen" id="screen-welcome">
+  <div id="tut-slide">
+    <div class="tut-emoji" id="tut-emoji">🎙️</div>
+    <h1 class="big-title" id="tut-title">Welcome to MeetMate</h1>
+    <p class="subtitle" id="tut-text">Your meeting note-taker. Tap record, talk, and it writes down everything for you — on any device.</p>
+  </div>
+  <div class="dots" id="tut-dots"><span class="on"></span><span></span><span></span></div>
+  <button class="btn" id="tut-next">Next →</button>
+</div>
+
+<!-- ============ HOME ============ -->
+<div class="screen" id="screen-home">
+  <div class="topbar">
+    <h2>🎙️ MeetMate</h2>
+    <button class="btn ghost small" onclick="show('settings')">⚙️ Settings</button>
+  </div>
+  <button class="btn" style="width:100%; font-size:1.1rem; padding:16px;" onclick="startNewMeeting()">➕ New meeting</button>
+  <div style="margin:14px 0;">
+    <input type="text" id="search-box" placeholder="🔍 Search your meetings…" oninput="renderList()">
+  </div>
+  <div id="meet-list"></div>
+</div>
+
+<!-- ============ RECORDING ============ -->
+<div class="screen" id="screen-record">
+  <div id="rec-wrap">
+    <input type="text" id="rec-title" placeholder="Meeting title (e.g. Team catch-up)" style="max-width:420px;">
+    <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎙️</button>
+    <div id="rec-timer">00:00</div>
+    <div id="rec-status">Tap the mic to start</div>
+  </div>
+  <div class="card">
+    <div class="section-label">Live transcript</div>
+    <div id="live-transcript"><span class="hint">Words will appear here as people speak…</span></div>
+  </div>
+  <div class="btn-row" style="justify-content:center;">
+    <button class="btn secondary" onclick="cancelRec()">Cancel</button>
+    <button class="btn gold" id="rec-done" onclick="finishRec()" disabled>✅ Finish &amp; save</button>
+  </div>
+</div>
+
+<!-- ============ MEETING DETAIL ============ -->
+<div class="screen" id="screen-detail">
+  <div class="topbar">
+    <button class="btn ghost small" onclick="show('home')">← Back</button>
+    <button class="btn ghost small" onclick="deleteMeeting()" style="color:var(--red); border-color:rgba(255,107,107,.4);">🗑️ Delete</button>
+  </div>
+  <input type="text" id="d-title" onchange="saveTitle()">
+  <div class="hint" id="d-date" style="margin:6px 2px;"></div>
+
+  <div class="btn-row">
+    <button class="btn small" id="btn-summarize" onclick="aiSummarize()">✨ AI summary</button>
+    <button class="btn secondary small" onclick="copyMeeting()">📋 Copy</button>
+    <button class="btn secondary small" onclick="downloadMeeting()">⬇️ Download</button>
+  </div>
+
+  <div id="d-summary-wrap" style="display:none;">
+    <div class="section-label">✨ AI summary</div>
+    <div id="d-summary"></div>
+  </div>
+
+  <div id="d-actions-wrap" style="display:none;">
+    <div class="section-label">⚡ Possible action items</div>
+    <div id="d-actions"></div>
+  </div>
+
+  <div class="section-label">📝 My notes</div>
+  <textarea id="d-notes" placeholder="Add your own notes here…" onchange="saveNotes()"></textarea>
+
+  <div class="section-label">🗒️ Full transcript</div>
+  <div class="card"><div id="d-transcript"></div></div>
+</div>
+
+<!-- ============ SETTINGS ============ -->
+<div class="screen" id="screen-settings">
+  <div class="topbar">
+    <button class="btn ghost small" onclick="show('home')">← Back</button>
+    <h2>⚙️ Settings</h2><span></span>
+  </div>
+  <div class="card">
+    <h3>✨ AI summaries (optional)</h3>
+    <p class="hint">The "AI summary" button is powered by Claude, Anthropic's AI — the same setup as Study Buddy. Without a key, MeetMate still records, transcribes and highlights action items.</p>
+    <ol class="hint" style="text-align:left;">
+      <li>Go to <b>console.anthropic.com</b> and create an account.</li>
+      <li>Add a payment method and create an API key.</li>
+      <li>Paste the key below.</li>
+    </ol>
+    <input type="password" id="api-key-input" placeholder="Paste your API key (sk-ant-…)" onchange="saveKey()">
+    <p class="hint">The key is saved only on this device — it never goes anywhere except directly to Anthropic.</p>
+    <div id="key-status" style="color:var(--green); font-weight:700;"></div>
+    <div class="model-row" id="model-row">
+      <label id="model-haiku">
+        <input type="radio" name="model" value="claude-haiku-4-5" style="margin-right:6px;">
+        <b>Fast 🐇</b><small>Claude Haiku — quick and cheap, great for summaries.</small>
+      </label>
+      <label id="model-opus">
+        <input type="radio" name="model" value="claude-opus-4-8" style="margin-right:6px;">
+        <b>Smart 🦉</b><small>Claude Opus — deeper summaries, costs more per meeting.</small>
+      </label>
+    </div>
+  </div>
+  <div class="card">
+    <h3>🌍 Spoken language</h3>
+    <p class="hint">What language are your meetings in? This helps the transcription.</p>
+    <select id="lang-select" onchange="saveLang()">
+      <option value="en-US">English (US)</option>
+      <option value="en-GB">English (UK)</option>
+      <option value="en-AU">English (Australia)</option>
+      <option value="es-ES">Español</option>
+      <option value="fr-FR">Français</option>
+      <option value="de-DE">Deutsch</option>
+      <option value="pt-BR">Português (Brasil)</option>
+      <option value="zh-CN">中文 (普通话)</option>
+      <option value="ja-JP">日本語</option>
+      <option value="ko-KR">한국어</option>
+      <option value="hi-IN">हिन्दी</option>
+      <option value="ar-SA">العربية</option>
+    </select>
+  </div>
+  <div class="card">
+    <h3>🔁 Replay the intro</h3>
+    <button class="btn secondary small" onclick="S.tutorialDone=false; save(); tutStep=0; renderTut(); show('welcome');">Show tutorial again</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ================= STATE ================= */
+const DEFAULT_STATE = { meetings:[], apiKey:"", model:"claude-haiku-4-5", lang:"en-US", tutorialDone:false };
+let S = load();
+function load(){
+  try{ return Object.assign({}, DEFAULT_STATE, JSON.parse(localStorage.getItem("meetmate")||"{}")); }
+  catch(e){ return {...DEFAULT_STATE}; }
+}
+function save(){ localStorage.setItem("meetmate", JSON.stringify(S)); }
+
+function show(name){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  document.getElementById("screen-"+name).classList.add("active");
+  if(name==="home") renderList();
+  if(name==="settings") renderSettings();
+  window.scrollTo(0,0);
+}
+function toast(msg){
+  const t=document.getElementById("toast");
+  t.textContent=msg; t.classList.add("show");
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("show"), 2600);
+}
+function esc(s){ const d=document.createElement("div"); d.textContent=s||""; return d.innerHTML; }
+
+/* ================= TUTORIAL ================= */
+const TUT = [
+  {e:"🎙️", t:"Welcome to MeetMate", x:"Your meeting note-taker. Tap record, talk, and it writes down everything for you — on any device."},
+  {e:"⚡", t:"It spots the action items", x:"After a meeting, MeetMate highlights the to-dos it heard, and Claude AI can write a tidy summary for you."},
+  {e:"🔒", t:"Your notes stay with you", x:"Saved meetings live only in this browser — no account, no server of ours. (Live transcription uses your browser's built-in speech service.) Ready? Let's go!"}
+];
+let tutStep = 0;
+function renderTut(){
+  const s=TUT[tutStep];
+  document.getElementById("tut-emoji").textContent=s.e;
+  document.getElementById("tut-title").textContent=s.t;
+  document.getElementById("tut-text").textContent=s.x;
+  document.getElementById("tut-dots").querySelectorAll("span").forEach((d,i)=>d.classList.toggle("on", i===tutStep));
+  document.getElementById("tut-next").textContent = tutStep===TUT.length-1 ? "Start! 🚀" : "Next →";
+}
+document.getElementById("tut-next").onclick = ()=>{
+  if(tutStep < TUT.length-1){ tutStep++; renderTut(); }
+  else{ S.tutorialDone=true; save(); show("home"); }
+};
+
+/* ================= HOME / LIST ================= */
+function renderList(){
+  const q=(document.getElementById("search-box").value||"").toLowerCase();
+  const list=document.getElementById("meet-list");
+  const items=S.meetings
+    .filter(m=>!q || (m.title+" "+m.transcript+" "+(m.notes||"")).toLowerCase().includes(q))
+    .sort((a,b)=>b.created-a.created);
+  if(!items.length){
+    list.innerHTML = `<div class="empty">${S.meetings.length? "No meetings match your search." : "No meetings yet.<br>Tap <b>New meeting</b> to record your first one! 🎉"}</div>`;
+    return;
+  }
+  list.innerHTML = items.map(m=>{
+    const d=new Date(m.created);
+    const dur=m.duration ? fmtTime(m.duration) : "";
+    const words=(m.transcript||"").split(/\s+/).filter(Boolean).length;
+    return `<div class="meet-item" onclick="openMeeting('${m.id}')">
+      <div class="ic">📄</div>
+      <div><div class="ttl">${esc(m.title)}</div>
+      <div class="sub">${d.toLocaleDateString(undefined,{weekday:"short", month:"short", day:"numeric"})} · ${dur} · ${words} words</div></div>
+      ${m.summary ? '<div class="flag">✨ summarized</div>' : ''}
+    </div>`;
+  }).join("");
+}
+
+/* ================= RECORDING ================= */
+let rec=null, listening=false, finalText="", interimText="", timerH=null, startedAt=0, elapsed=0;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function startNewMeeting(){
+  if(!SR){
+    toast("This browser can't do live transcription — try Chrome, Edge or Safari.");
+    return;
+  }
+  finalText=""; interimText=""; elapsed=0;
+  document.getElementById("rec-title").value="";
+  document.getElementById("rec-timer").textContent="00:00";
+  document.getElementById("rec-status").textContent="Tap the mic to start";
+  document.getElementById("live-transcript").innerHTML='<span class="hint">Words will appear here as people speak…</span>';
+  document.getElementById("rec-btn").classList.remove("live");
+  document.getElementById("rec-done").disabled=true;
+  show("record");
+}
+
+function makeRec(){
+  const r=new SR();
+  r.continuous=true; r.interimResults=true; r.lang=S.lang||"en-US";
+  r.onresult = e=>{
+    interimText="";
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const t=e.results[i][0].transcript;
+      if(e.results[i].isFinal) finalText += t.trim()+"\n";
+      else interimText += t;
+    }
+    renderLive();
+  };
+  r.onend = ()=>{ if(listening){ try{ r.start(); }catch(e){} } };
+  r.onerror = e=>{
+    if(e.error==="not-allowed" || e.error==="service-not-allowed"){
+      listening=false; stopUI();
+      toast("Microphone blocked — allow mic access in your browser settings.");
+    }
+  };
+  return r;
+}
+
+function renderLive(){
+  const el=document.getElementById("live-transcript");
+  el.innerHTML = esc(finalText) + (interimText? '<span class="interim">'+esc(interimText)+'</span>' : '');
+  el.scrollTop = el.scrollHeight;
+}
+
+function toggleRec(){
+  if(listening){ pauseRec(); } else { beginRec(); }
+}
+function beginRec(){
+  try{
+    rec = rec || makeRec();
+    rec.lang = S.lang||"en-US";
+    rec.start();
+  }catch(e){}
+  listening=true;
+  startedAt=Date.now();
+  timerH=setInterval(()=>{
+    document.getElementById("rec-timer").textContent = fmtTime(elapsed + (Date.now()-startedAt)/1000);
+  }, 500);
+  document.getElementById("rec-btn").classList.add("live");
+  document.getElementById("rec-btn").textContent="⏸️";
+  document.getElementById("rec-status").textContent="Listening… tap to pause";
+  document.getElementById("rec-done").disabled=false;
+}
+function pauseRec(){
+  listening=false;
+  try{ rec && rec.stop(); }catch(e){}
+  elapsed += (Date.now()-startedAt)/1000;
+  stopUI();
+}
+function stopUI(){
+  clearInterval(timerH);
+  document.getElementById("rec-btn").classList.remove("live");
+  document.getElementById("rec-btn").textContent="🎙️";
+  document.getElementById("rec-status").textContent="Paused — tap to continue";
+}
+function cancelRec(){
+  if(finalText.trim() && !confirm("Throw away this recording?")) return;
+  listening=false; try{ rec && rec.stop(); }catch(e){}
+  clearInterval(timerH);
+  show("home");
+}
+function finishRec(){
+  if(listening) pauseRec();
+  const transcript=finalText.trim();
+  if(!transcript){ toast("Nothing was transcribed yet — try speaking a little first!"); return; }
+  const title=document.getElementById("rec-title").value.trim() ||
+    "Meeting " + new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});
+  const m={ id:"m"+Date.now(), title, created:Date.now(), duration:elapsed, transcript, notes:"", summary:"" };
+  S.meetings.push(m); save();
+  toast("Saved! 🎉");
+  openMeeting(m.id);
+}
+function fmtTime(sec){
+  sec=Math.floor(sec);
+  const m=String(Math.floor(sec/60)).padStart(2,"0"), s=String(sec%60).padStart(2,"0");
+  return m+":"+s;
+}
+
+/* ================= DETAIL ================= */
+let cur=null;
+function openMeeting(id){
+  cur = S.meetings.find(m=>m.id===id);
+  if(!cur) return;
+  document.getElementById("d-title").value=cur.title;
+  document.getElementById("d-date").textContent =
+    new Date(cur.created).toLocaleString(undefined,{weekday:"long", month:"long", day:"numeric", hour:"numeric", minute:"2-digit"}) +
+    (cur.duration? " · "+fmtTime(cur.duration) : "");
+  document.getElementById("d-notes").value=cur.notes||"";
+  document.getElementById("d-transcript").textContent=cur.transcript;
+  renderSummary();
+  renderActions();
+  show("detail");
+}
+function renderSummary(){
+  const wrap=document.getElementById("d-summary-wrap");
+  if(cur.summary){ wrap.style.display="block"; document.getElementById("d-summary").textContent=cur.summary; }
+  else wrap.style.display="none";
+  document.getElementById("btn-summarize").textContent = cur.summary ? "✨ Redo AI summary" : "✨ AI summary";
+}
+function renderActions(){
+  const lines=findActionItems(cur.transcript);
+  const wrap=document.getElementById("d-actions-wrap");
+  if(!lines.length){ wrap.style.display="none"; return; }
+  wrap.style.display="block";
+  document.getElementById("d-actions").innerHTML = lines.map(l=>'<div class="action-line">'+esc(l)+'</div>').join("");
+}
+function findActionItems(text){
+  const CUES=/\b(action item|to.?do|follow.? ?up|(i|we|you|she|he|they)('| wi)ll|need(s)? to|has to|have to|should|must|let'?s|remind|deadline|due|by (mon|tues|wednes|thurs|fri|satur|sun)day|by (tomorrow|next week|end of)|schedule|send (the|a|an|it|them)|assign)/i;
+  return (text||"").split(/\n+/).map(s=>s.trim()).filter(s=>s.length>12 && CUES.test(s)).slice(0,10);
+}
+function saveTitle(){ if(!cur) return; cur.title=document.getElementById("d-title").value.trim()||cur.title; save(); }
+function saveNotes(){ if(!cur) return; cur.notes=document.getElementById("d-notes").value; save(); }
+function deleteMeeting(){
+  if(!cur) return;
+  if(!confirm('Delete "'+cur.title+'"? This can\'t be undone.')) return;
+  S.meetings = S.meetings.filter(m=>m.id!==cur.id); save();
+  cur=null; show("home"); toast("Deleted");
+}
+function meetingAsText(){
+  let out = cur.title + "\n" + new Date(cur.created).toLocaleString() + "\n\n";
+  if(cur.summary) out += "=== AI SUMMARY ===\n" + cur.summary + "\n\n";
+  if(cur.notes) out += "=== MY NOTES ===\n" + cur.notes + "\n\n";
+  out += "=== TRANSCRIPT ===\n" + cur.transcript + "\n";
+  return out;
+}
+async function copyMeeting(){
+  try{ await navigator.clipboard.writeText(meetingAsText()); toast("Copied! Paste it anywhere 📋"); }
+  catch(e){ toast("Couldn't copy — try the Download button instead."); }
+}
+function downloadMeeting(){
+  const blob=new Blob([meetingAsText()],{type:"text/plain"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=cur.title.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g,"-")+".txt";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+}
+
+/* ================= AI SUMMARY ================= */
+async function aiSummarize(){
+  if(!cur) return;
+  if(!S.apiKey){
+    toast("Add your Claude API key in Settings to turn on AI summaries ✨");
+    show("settings");
+    return;
+  }
+  const btn=document.getElementById("btn-summarize");
+  btn.disabled=true; btn.textContent="✨ Thinking…";
+  try{
+    const res=await fetch("https://api.anthropic.com/v1/messages",{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "x-api-key":S.apiKey,
+        "anthropic-version":"2023-06-01",
+        "anthropic-dangerous-direct-browser-access":"true"
+      },
+      body:JSON.stringify({
+        model:S.model||"claude-haiku-4-5",
+        max_tokens:1200,
+        messages:[{role:"user",content:
+`Here is a raw speech-to-text transcript of a meeting titled "${cur.title}". It may have transcription errors.
+
+Write meeting notes with exactly these sections, in plain text (no markdown symbols):
+
+SUMMARY
+2-4 sentences on what the meeting was about and what was concluded.
+
+KEY POINTS
+• bullet per main topic (max 6)
+
+DECISIONS
+• bullet per decision made (or "None mentioned")
+
+ACTION ITEMS
+• bullet per task, with who and when if mentioned (or "None mentioned")
+
+Transcript:
+${cur.transcript.slice(0, 60000)}`}]
+      })
+    });
+    const data=await res.json();
+    if(data.error) throw new Error(data.error.message||"API error");
+    cur.summary=(data.content&&data.content[0]&&data.content[0].text||"").trim();
+    save(); renderSummary();
+    toast("Summary ready! ✨");
+  }catch(e){
+    toast("Summary failed: "+(e.message||"check your key and internet").slice(0,120));
+  }finally{
+    btn.disabled=false; renderSummary();
+  }
+}
+
+/* ================= SETTINGS ================= */
+function renderSettings(){
+  document.getElementById("api-key-input").value=S.apiKey||"";
+  document.getElementById("key-status").textContent=S.apiKey? "✓ key saved" : "";
+  document.getElementById("lang-select").value=S.lang||"en-US";
+  document.querySelectorAll("#model-row input").forEach(r=>{
+    r.checked=(r.value===S.model);
+    r.onchange=()=>{ S.model=r.value; save(); markModel(); };
+  });
+  markModel();
+}
+function markModel(){
+  document.getElementById("model-haiku").classList.toggle("sel", S.model==="claude-haiku-4-5");
+  document.getElementById("model-opus").classList.toggle("sel", S.model==="claude-opus-4-8");
+}
+function saveKey(){
+  S.apiKey=document.getElementById("api-key-input").value.trim(); save();
+  document.getElementById("key-status").textContent=S.apiKey? "✓ key saved" : "";
+}
+function saveLang(){ S.lang=document.getElementById("lang-select").value; save(); }
+
+/* ================= BOOT ================= */
+if(S.tutorialDone){ show("home"); } else { renderTut(); show("welcome"); }
+</script>
+</body>
+</html>
