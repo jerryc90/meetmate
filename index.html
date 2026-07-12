@@ -78,6 +78,18 @@
 
   /* recording screen */
   #rec-wrap{text-align:center;}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; justify-content:center; margin:10px 0;}
+  .chip{
+    padding:9px 18px; border-radius:999px; background:#fff; border:2px solid rgba(37,50,75,.18);
+    font-weight:700; cursor:pointer; box-shadow:var(--shadow); display:inline-flex; gap:6px; align-items:center;
+    transition:transform .1s; font-size:1rem;
+  }
+  .chip:active{transform:scale(.94);}
+  .chip.speaking{background:var(--teal); color:#fff; border-color:var(--teal);}
+  .add-person-row{display:flex; gap:8px; max-width:420px; margin:8px auto;}
+  .add-person-row input{flex:1;}
+  #mic-meter{width:220px; height:10px; background:#dde5e7; border-radius:999px; margin:10px auto 4px; overflow:hidden;}
+  #mic-meter-fill{height:100%; width:0%; background:var(--green); border-radius:999px; transition:width .08s linear;}
   .rec-btn{
     width:132px; height:132px; border-radius:50%; border:none; cursor:pointer;
     background:var(--teal); color:#fff; font-size:3rem; box-shadow:0 6px 22px rgba(14,155,143,.4);
@@ -131,7 +143,7 @@
     <h1 class="big-title" id="tut-title">Welcome to MeetMate</h1>
     <p class="subtitle" id="tut-text">Your meeting note-taker. Tap record, talk, and it writes down everything for you — on any device.</p>
   </div>
-  <div class="dots" id="tut-dots"><span class="on"></span><span></span><span></span></div>
+  <div class="dots" id="tut-dots"><span class="on"></span><span></span><span></span><span></span></div>
   <button class="btn" id="tut-next">Next →</button>
 </div>
 
@@ -152,7 +164,16 @@
 <div class="screen" id="screen-record">
   <div id="rec-wrap">
     <input type="text" id="rec-title" placeholder="Meeting title (e.g. Team catch-up)" style="max-width:420px;">
+    <div class="section-label" style="text-align:center;">👋 Introductions — who's here?</div>
+    <div class="add-person-row">
+      <input type="text" id="person-input" placeholder="Type a name, e.g. Sarah">
+      <button class="btn small" onclick="addPerson()">➕ Add</button>
+    </div>
+    <div class="chips" id="people-chips"></div>
+    <p class="hint" id="speaker-hint" style="text-align:center;">Add everyone at the start. During the meeting, tap whoever is talking — their name gets written into the transcript.</p>
     <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎙️</button>
+    <div id="mic-meter"><div id="mic-meter-fill"></div></div>
+    <p class="hint" style="text-align:center; margin:0 0 6px;">mic level — the green bar should move when you talk</p>
     <div id="rec-timer">00:00</div>
     <div id="rec-status">Tap the mic to start</div>
   </div>
@@ -280,6 +301,7 @@ function esc(s){ const d=document.createElement("div"); d.textContent=s||""; ret
 /* ================= TUTORIAL ================= */
 const TUT = [
   {e:"🎙️", t:"Welcome to MeetMate", x:"Your meeting note-taker. Tap record, talk, and it writes down everything for you — on any device."},
+  {e:"👋", t:"Start with introductions", x:"Add everyone's name before you hit record. Then just tap whoever is talking — the transcript shows who said what, like \"Sarah: I'll send the flyer.\""},
   {e:"⚡", t:"It spots the action items", x:"After a meeting, MeetMate highlights the to-dos it heard, and Claude AI can write a tidy summary for you."},
   {e:"🔒", t:"Your notes stay with you", x:"Saved meetings live only in this browser — no account, no server of ours. (Live transcription uses your browser's built-in speech service.) Ready? Let's go!"}
 ];
@@ -323,7 +345,10 @@ function renderList(){
 
 /* ================= RECORDING ================= */
 let rec=null, listening=false, finalText="", interimText="", timerH=null, startedAt=0, elapsed=0;
+let people=[], currentSpeaker=null;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
 
 function startNewMeeting(){
   if(!SR){
@@ -331,6 +356,8 @@ function startNewMeeting(){
     return;
   }
   finalText=""; interimText=""; elapsed=0;
+  people=[]; currentSpeaker=null; renderPeople();
+  document.getElementById("person-input").value="";
   document.getElementById("rec-title").value="";
   document.getElementById("rec-timer").textContent="00:00";
   document.getElementById("rec-status").textContent="Tap the mic to start";
@@ -340,14 +367,79 @@ function startNewMeeting(){
   show("record");
 }
 
+/* ----- attendees / who's talking ----- */
+function addPerson(){
+  const inp=document.getElementById("person-input");
+  const name=inp.value.trim().replace(/\s+/g," ").slice(0,30);
+  if(!name) return;
+  if(!people.some(p=>p.toLowerCase()===name.toLowerCase())) people.push(name);
+  inp.value=""; inp.focus();
+  renderPeople();
+}
+function renderPeople(){
+  document.getElementById("people-chips").innerHTML = people.map((p,i)=>
+    `<span class="chip ${p===currentSpeaker?'speaking':''}" onclick="tagSpeaker(${i})">${p===currentSpeaker?'🗣️ ':''}${esc(p)}</span>`
+  ).join("");
+}
+function tagSpeaker(i){
+  currentSpeaker = (people[i]===currentSpeaker)? null : people[i];
+  renderPeople();
+  if(listening){
+    document.getElementById("rec-status").textContent =
+      currentSpeaker? "🗣️ "+currentSpeaker+" is talking" : "🔴 Listening…";
+  }
+}
+
+/* ----- mic level meter (so you can SEE the mic working) ----- */
+let micStream=null, audioCtx=null, meterRAF=null;
+async function startMeter(){
+  if(IS_IOS) return; // Safari on iPad/iPhone handles the mic itself; avoid fighting over it
+  try{
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==="suspended") audioCtx.resume();
+    const src=audioCtx.createMediaStreamSource(micStream);
+    const an=audioCtx.createAnalyser(); an.fftSize=512;
+    src.connect(an);
+    const buf=new Uint8Array(an.frequencyBinCount);
+    const fill=document.getElementById("mic-meter-fill");
+    (function loop(){
+      an.getByteTimeDomainData(buf);
+      let peak=0;
+      for(let i=0;i<buf.length;i++){ const v=Math.abs(buf[i]-128); if(v>peak) peak=v; }
+      fill.style.width=Math.min(100, peak*1.8)+"%";
+      meterRAF=requestAnimationFrame(loop);
+    })();
+  }catch(e){
+    micFail("⚠️ Microphone blocked. Click the 🔒 or camera icon near the address bar, allow the microphone, then try again.");
+  }
+}
+function stopMeter(){
+  if(meterRAF) cancelAnimationFrame(meterRAF);
+  meterRAF=null;
+  if(micStream){ micStream.getTracks().forEach(t=>t.stop()); micStream=null; }
+  document.getElementById("mic-meter-fill").style.width="0%";
+}
+function micFail(msg){
+  listening=false; stopUI(); stopMeter();
+  document.getElementById("rec-status").textContent=msg;
+}
+
 function makeRec(){
   const r=new SR();
   r.continuous=true; r.interimResults=true; r.lang=S.lang||"en-US";
+  r.onstart = ()=>{
+    if(listening) document.getElementById("rec-status").textContent =
+      currentSpeaker? "🗣️ "+currentSpeaker+" is talking" : "🔴 Listening…";
+  };
   r.onresult = e=>{
     interimText="";
     for(let i=e.resultIndex;i<e.results.length;i++){
       const t=e.results[i][0].transcript;
-      if(e.results[i].isFinal) finalText += t.trim()+"\n";
+      if(e.results[i].isFinal){
+        const line=t.trim();
+        if(line) finalText += (currentSpeaker? currentSpeaker+": " : "") + line + "\n";
+      }
       else interimText += t;
     }
     renderLive();
@@ -355,9 +447,14 @@ function makeRec(){
   r.onend = ()=>{ if(listening){ try{ r.start(); }catch(e){} } };
   r.onerror = e=>{
     if(e.error==="not-allowed" || e.error==="service-not-allowed"){
-      listening=false; stopUI();
-      toast("Microphone blocked — allow mic access in your browser settings.");
+      micFail("⚠️ Microphone blocked. Click the 🔒 or camera icon near the address bar, allow the microphone, then try again.");
+    }else if(e.error==="audio-capture"){
+      micFail("⚠️ No microphone found. Check one is plugged in, and that Windows Settings → Privacy → Microphone allows your browser.");
+    }else if(e.error==="network"){
+      document.getElementById("rec-status").textContent =
+        "⚠️ Speech service unreachable — check your internet connection. Chrome, Edge or Safari work best.";
     }
+    // "no-speech" and "aborted" are normal pauses — onend auto-restarts
   };
   return r;
 }
@@ -372,24 +469,26 @@ function toggleRec(){
   if(listening){ pauseRec(); } else { beginRec(); }
 }
 function beginRec(){
+  listening=true;
   try{
     rec = rec || makeRec();
     rec.lang = S.lang||"en-US";
     rec.start();
   }catch(e){}
-  listening=true;
+  startMeter();
   startedAt=Date.now();
   timerH=setInterval(()=>{
     document.getElementById("rec-timer").textContent = fmtTime(elapsed + (Date.now()-startedAt)/1000);
   }, 500);
   document.getElementById("rec-btn").classList.add("live");
   document.getElementById("rec-btn").textContent="⏸️";
-  document.getElementById("rec-status").textContent="Listening… tap to pause";
+  document.getElementById("rec-status").textContent="🔴 Listening… tap to pause";
   document.getElementById("rec-done").disabled=false;
 }
 function pauseRec(){
   listening=false;
   try{ rec && rec.stop(); }catch(e){}
+  stopMeter();
   elapsed += (Date.now()-startedAt)/1000;
   stopUI();
 }
@@ -402,6 +501,7 @@ function stopUI(){
 function cancelRec(){
   if(finalText.trim() && !confirm("Throw away this recording?")) return;
   listening=false; try{ rec && rec.stop(); }catch(e){}
+  stopMeter();
   clearInterval(timerH);
   show("home");
 }
@@ -411,7 +511,7 @@ function finishRec(){
   if(!transcript){ toast("Nothing was transcribed yet — try speaking a little first!"); return; }
   const title=document.getElementById("rec-title").value.trim() ||
     "Meeting " + new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});
-  const m={ id:"m"+Date.now(), title, created:Date.now(), duration:elapsed, transcript, notes:"", summary:"" };
+  const m={ id:"m"+Date.now(), title, created:Date.now(), duration:elapsed, transcript, notes:"", summary:"", attendees:people.slice() };
   S.meetings.push(m); save();
   toast("Saved! 🎉");
   openMeeting(m.id);
@@ -430,7 +530,8 @@ function openMeeting(id){
   document.getElementById("d-title").value=cur.title;
   document.getElementById("d-date").textContent =
     new Date(cur.created).toLocaleString(undefined,{weekday:"long", month:"long", day:"numeric", hour:"numeric", minute:"2-digit"}) +
-    (cur.duration? " · "+fmtTime(cur.duration) : "");
+    (cur.duration? " · "+fmtTime(cur.duration) : "") +
+    (cur.attendees && cur.attendees.length? " · 👋 "+cur.attendees.join(", ") : "");
   document.getElementById("d-notes").value=cur.notes||"";
   document.getElementById("d-transcript").textContent=cur.transcript;
   renderSummary();
@@ -463,7 +564,9 @@ function deleteMeeting(){
   cur=null; show("home"); toast("Deleted");
 }
 function meetingAsText(){
-  let out = cur.title + "\n" + new Date(cur.created).toLocaleString() + "\n\n";
+  let out = cur.title + "\n" + new Date(cur.created).toLocaleString() + "\n";
+  if(cur.attendees && cur.attendees.length) out += "Attendees: " + cur.attendees.join(", ") + "\n";
+  out += "\n";
   if(cur.summary) out += "=== AI SUMMARY ===\n" + cur.summary + "\n\n";
   if(cur.notes) out += "=== MY NOTES ===\n" + cur.notes + "\n\n";
   out += "=== TRANSCRIPT ===\n" + cur.transcript + "\n";
@@ -506,6 +609,7 @@ async function aiSummarize(){
         max_tokens:1200,
         messages:[{role:"user",content:
 `Here is a raw speech-to-text transcript of a meeting titled "${cur.title}". It may have transcription errors.
+${cur.attendees && cur.attendees.length? "Attendees: "+cur.attendees.join(", ")+". Lines may start with the speaker's name (e.g. \"Sarah: ...\"). Use those names when noting who said what and who owns each action item." : ""}
 
 Write meeting notes with exactly these sections, in plain text (no markdown symbols):
 
@@ -559,6 +663,9 @@ function saveKey(){
 function saveLang(){ S.lang=document.getElementById("lang-select").value; save(); }
 
 /* ================= BOOT ================= */
+document.getElementById("person-input").addEventListener("keydown", e=>{
+  if(e.key==="Enter"){ e.preventDefault(); addPerson(); }
+});
 if(S.tutorialDone){ show("home"); } else { renderTut(); show("welcome"); }
 </script>
 </body>
