@@ -171,15 +171,26 @@
     </div>
     <div class="chips" id="people-chips"></div>
     <p class="hint" id="speaker-hint" style="text-align:center;">Add everyone at the start. During the meeting, tap whoever is talking — their name gets written into the transcript.</p>
-    <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎙️</button>
-    <div id="mic-meter"><div id="mic-meter-fill"></div></div>
-    <p class="hint" style="text-align:center; margin:0 0 6px;">mic level — the green bar should move when you talk</p>
-    <div id="rec-timer">00:00</div>
-    <div id="rec-status">Tap the mic to start</div>
+    <div id="sr-ui">
+      <button class="rec-btn" id="rec-btn" onclick="toggleRec()">🎙️</button>
+      <div id="mic-meter"><div id="mic-meter-fill"></div></div>
+      <p class="hint" style="text-align:center; margin:0 0 6px;">mic level — the green bar should move when you talk</p>
+      <div id="rec-timer">00:00</div>
+      <div id="rec-status">Tap the mic to start</div>
+    </div>
+    <div id="dict-ui" style="display:none;">
+      <p class="hint" style="text-align:center;">📱 Home-screen apps can't use live transcription (an Apple rule), so use dictation instead:<br>
+      <b>1.</b> Tap into the box below &nbsp;<b>2.</b> Tap the <b>🎤 key on your keyboard</b> — the iPad types what it hears.<br>
+      Tap a name above whenever the speaker changes.</p>
+    </div>
   </div>
-  <div class="card">
+  <div class="card" id="live-wrap">
     <div class="section-label">Live transcript</div>
     <div id="live-transcript"><span class="hint">Words will appear here as people speak…</span></div>
+  </div>
+  <div class="card" id="dict-wrap" style="display:none;">
+    <div class="section-label">Transcript (keyboard dictation)</div>
+    <textarea id="dict-input" style="min-height:200px;" placeholder="Tap here, then tap the 🎤 on your keyboard…"></textarea>
   </div>
   <div class="btn-row" style="justify-content:center;">
     <button class="btn secondary" onclick="cancelRec()">Cancel</button>
@@ -349,12 +360,20 @@ let people=[], currentSpeaker=null;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const IS_STANDALONE = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+  window.navigator.standalone===true;
+let dictMode=false;
 
 function startNewMeeting(){
-  if(!SR){
-    toast("This browser can't do live transcription — try Chrome, Edge or Safari.");
-    return;
-  }
+  // Apple blocks the live speech engine in home-screen web apps, and some
+  // browsers (e.g. Firefox) have no speech engine at all — fall back to
+  // keyboard dictation in a text box.
+  dictMode = !SR || (IS_IOS && IS_STANDALONE);
+  document.getElementById("sr-ui").style.display = dictMode? "none":"block";
+  document.getElementById("dict-ui").style.display = dictMode? "block":"none";
+  document.getElementById("live-wrap").style.display = dictMode? "none":"block";
+  document.getElementById("dict-wrap").style.display = dictMode? "block":"none";
+  document.getElementById("dict-input").value="";
   finalText=""; interimText=""; elapsed=0;
   people=[]; currentSpeaker=null; renderPeople();
   document.getElementById("person-input").value="";
@@ -363,7 +382,7 @@ function startNewMeeting(){
   document.getElementById("rec-status").textContent="Tap the mic to start";
   document.getElementById("live-transcript").innerHTML='<span class="hint">Words will appear here as people speak…</span>';
   document.getElementById("rec-btn").classList.remove("live");
-  document.getElementById("rec-done").disabled=true;
+  document.getElementById("rec-done").disabled = !dictMode;
   show("record");
 }
 
@@ -384,7 +403,14 @@ function renderPeople(){
 function tagSpeaker(i){
   currentSpeaker = (people[i]===currentSpeaker)? null : people[i];
   renderPeople();
-  if(listening){
+  if(dictMode){
+    if(currentSpeaker){
+      const ta=document.getElementById("dict-input");
+      ta.value += (ta.value && !ta.value.endsWith("\n") ? "\n" : "") + currentSpeaker + ": ";
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+  }else if(listening){
     document.getElementById("rec-status").textContent =
       currentSpeaker? "🗣️ "+currentSpeaker+" is talking" : "🔴 Listening…";
   }
@@ -499,7 +525,8 @@ function stopUI(){
   document.getElementById("rec-status").textContent="Paused — tap to continue";
 }
 function cancelRec(){
-  if(finalText.trim() && !confirm("Throw away this recording?")) return;
+  const content = dictMode? document.getElementById("dict-input").value : finalText;
+  if(content.trim() && !confirm("Throw away this recording?")) return;
   listening=false; try{ rec && rec.stop(); }catch(e){}
   stopMeter();
   clearInterval(timerH);
@@ -507,8 +534,8 @@ function cancelRec(){
 }
 function finishRec(){
   if(listening) pauseRec();
-  const transcript=finalText.trim();
-  if(!transcript){ toast("Nothing was transcribed yet — try speaking a little first!"); return; }
+  const transcript=(dictMode? document.getElementById("dict-input").value : finalText).trim();
+  if(!transcript){ toast(dictMode? "The transcript box is empty — tap it and use the 🎤 key on your keyboard!" : "Nothing was transcribed yet — try speaking a little first!"); return; }
   const title=document.getElementById("rec-title").value.trim() ||
     "Meeting " + new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"});
   const m={ id:"m"+Date.now(), title, created:Date.now(), duration:elapsed, transcript, notes:"", summary:"", attendees:people.slice() };
